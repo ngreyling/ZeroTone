@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe = Windows GUI subsystem (no console window). -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZeroTone</RootNamespace>
+    <AssemblyName>ZeroTone</AssemblyName>
+
+    <Product>ZeroTone</Product>
+    <AssemblyTitle>ZeroTone</AssemblyTitle>
+    <Authors>Neville Greyling</Authors>
+    <Copyright>Copyright (c) 2026 Neville Greyling</Copyright>
+    <Description>ZeroTone — because the first second counts. Keeps your default audio output awake with silence or near-silence (WASAPI; follows default device; Constant/Pulsed).</Description>
+
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+
+    <!-- KeepAliveAudioService fills WASAPI buffers via unsafe pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Product identity (Explorer, shortcut, mixer default). Same glyph as Running. -->
+    <ApplicationIcon>Resources\bar-chart-green.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Per-monitor DPI: form scales with each display; matches AutoScaleMode.Dpi. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+
+    <LangVersion>latest</LangVersion>
+
+    <!--
+      .NET 8+: PublishSingleFile=true implies self-contained unless PublishSelfContained
+      is false (~100MB+ exe). Defaults keep single-file publishes small when the flag
+      is omitted; README documents the full explicit command.
+    -->
+    <SelfContained>false</SelfContained>
+    <PublishSelfContained>false</PublishSelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Resources\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Explicit LogicalNames so GetManifestResourceStream names stay stable. -->
+    <EmbeddedResource Include="Resources\bar-chart-green.ico" LogicalName="ZeroTone.bar-chart-green.ico" />
+    <EmbeddedResource Include="Resources\bar-chart-amber.ico" LogicalName="ZeroTone.bar-chart-amber.ico" />
+    <EmbeddedResource Include="Resources\bar-chart-red.ico" LogicalName="ZeroTone.bar-chart-red.ico" />
+  </ItemGroup>
+
+</Project>
