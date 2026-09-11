@@ -28,7 +28,7 @@ Tray menu (status, Start/Stop, Exit):
 
 ## Download
 
-The latest `ZeroTone.exe` is on [GitHub Releases](https://github.com/ngreyling/ZeroTone/releases/latest) (64-bit Windows, typically under 1 MB). Copy the file and run it; there is no installer.
+The latest zip is on [GitHub Releases](https://github.com/ngreyling/ZeroTone/releases/latest) (64-bit Windows, typically under 1 MB). Unzip and run `ZeroTone.exe`; there is no installer. The zip includes `LICENSE` (MIT).
 
 It needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) on the PC. A larger self-contained build (runtime included) is described under [Publish](#publish).
 
@@ -99,7 +99,7 @@ Small exe (needs **.NET 10 Desktop Runtime** on the PC; the runtime is **not** b
 dotnet publish src\ZeroTone -c Release -r win-x64 -p:PublishSingleFile=true -p:PublishSelfContained=false -p:DebugType=None -p:DebugSymbols=false
 ```
 
-**Output:** `src\ZeroTone\bin\Release\net10.0-windows\win-x64\publish\ZeroTone.exe`, typically under 1 MB. Ship that file (or the `publish` folder), not the rest of `bin`.
+**Output:** `src\ZeroTone\bin\Release\net10.0-windows\win-x64\publish\ZeroTone.exe`, typically under 1 MB. Zip that exe together with `LICENSE` from the repo root (not the rest of `bin`) and attach the zip to a GitHub Release.
 
 On .NET 8+, `PublishSingleFile=true` implies a self-contained publish unless you also pass `PublishSelfContained=false`. Omit that flag and the exe can jump to **~100+ MB**. Use the full command above.
 
