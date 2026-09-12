@@ -74,7 +74,7 @@ Hover Audio Type, Pattern, and the status on the Main tab for short when-to-use 
 
 ## Scope
 
-ZeroTone keeps the **default playback device** awake — the one Windows uses for music, films, and games. It does not hold every output at once, and it does not follow a headset that is only the default communications device. It never unmutes its own mixer row or changes that volume.
+ZeroTone keeps the **default playback device** awake (the one Windows uses for music, films, and games). It does not hold every output at once, and it does not follow a headset that is only the default communications device. It never unmutes its own mixer row or changes that volume.
 
 Like any app that is playing, Constant keep-alive can keep the PC from auto-sleeping on some Windows 11 setups.
 
@@ -99,7 +99,7 @@ Small exe (needs **.NET 10 Desktop Runtime** on the PC; the runtime is **not** b
 dotnet publish src\ZeroTone -c Release -r win-x64 -p:PublishSingleFile=true -p:PublishSelfContained=false -p:DebugType=None -p:DebugSymbols=false
 ```
 
-**Output:** `src\ZeroTone\bin\Release\net10.0-windows\win-x64\publish\ZeroTone.exe`, typically under 1 MB. Zip that exe together with `LICENSE` from the repo root (not the rest of `bin`) and attach the zip to a GitHub Release.
+**Output:** `src\ZeroTone\bin\Release\net10.0-windows\win-x64\publish\ZeroTone.exe`, typically under 1 MB.
 
 On .NET 8+, `PublishSingleFile=true` implies a self-contained publish unless you also pass `PublishSelfContained=false`. Omit that flag and the exe can jump to **~100+ MB**. Use the full command above.
 
