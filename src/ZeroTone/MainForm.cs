@@ -230,6 +230,13 @@ internal partial class MainForm : Form
     private const int TabStripPaddingYDesign = 3;
 
     /// <summary>
+    /// Client size at 96 DPI. Must match <c>ClientSize</c> in MainForm.Designer.cs.
+    /// </summary>
+    private const int DesignClientWidth = 400;
+
+    private const int DesignClientHeight = 108;
+
+    /// <summary>
     /// TCM_SETPADDING — applied directly so we do not RecreateHandle
     /// (<see cref="TabControl.Padding"/> setter does).
     /// </summary>
@@ -424,6 +431,11 @@ internal partial class MainForm : Form
         if (_windowHandleCreatedOnce)
         {
             ReloadIconsForCurrentDpi();
+            // WinForms changes the form size when the handle is recreated on a
+            // non-96 DPI monitor (dotnet/winforms#6125). The first tray restore
+            // does that by setting ShowInTaskbar from false to true. Put the
+            // client back to the design size at this window's DPI before layout.
+            RestoreDesignClientSize();
             ApplyScaledUiLayout();
         }
         else
@@ -2110,6 +2122,9 @@ internal partial class MainForm : Form
         if (!ShowInTaskbar)
         {
             ShowInTaskbar = true;
+            // RecreateHandle returns after OnHandleCreated. Set the client
+            // size again in case WinForms resized the form after that call.
+            RestoreDesignClientSize();
         }
 
         if (WindowState == FormWindowState.Minimized || (IsHandleCreated && IsIconic(Handle)))
@@ -2125,6 +2140,21 @@ internal partial class MainForm : Form
 
         ApplyScaledUiLayout();
         MaybeWarnSettingsReset();
+    }
+
+    /// <summary>
+    /// Sets the client area to the 96 DPI design size scaled by this window's DPI.
+    /// </summary>
+    private void RestoreDesignClientSize()
+    {
+        if (!IsHandleCreated || IsDisposed)
+        {
+            return;
+        }
+
+        ClientSize = new Size(
+            LogicalToDeviceUnits(DesignClientWidth),
+            LogicalToDeviceUnits(DesignClientHeight));
     }
 
     /// <summary>
