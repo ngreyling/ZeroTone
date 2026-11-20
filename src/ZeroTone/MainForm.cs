@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Windows.Forms.VisualStyles;
 using Microsoft.Win32;
 using ZeroTone.Audio;
 using ZeroTone.Settings;
@@ -16,6 +17,22 @@ internal partial class MainForm : Form
 
     private const int SwRestore = 9;
     private const int WmSysCommand = 0x0112;
+    private const int WmDisplayChange = 0x007E;
+    private const int WmSettingChange = 0x001A;
+
+    /// <summary>Undocumented. Broadcast when a monitor's scale changes.</summary>
+    private const int SpiSetLogicalDpiOverride = 0x009F;
+
+    /// <summary>
+    /// Quiet period after the last scale-change message before redrawing.
+    /// Painting during the burst draws new text on top of the previous frame.
+    /// </summary>
+    private const int DisplayChangeRepaintDelayMs = 500;
+
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwErase = 0x0004;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
 
     /// <summary>
     /// SC_* commands in WM_SYSCOMMAND; low 4 bits are reserved (mask with 0xFFF0).
@@ -49,6 +66,9 @@ internal partial class MainForm : Form
 
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
 
     private const string AppName = "ZeroTone";
     private const string StoppedMessage = "Stopped";
@@ -144,6 +164,11 @@ internal partial class MainForm : Form
     /// open can coalesce to Running.
     /// </summary>
     private System.Windows.Forms.Timer? _amberPhaseUiCoalesceTimer;
+
+    /// <summary>
+    /// Restarts on each scale-change broadcast so one redraw runs after the burst.
+    /// </summary>
+    private System.Windows.Forms.Timer? _displayChangeRepaintTimer;
 
     // Multi-res .ico bytes (16–80). Kept so we can re-extract sizes on DPI change.
     private readonly byte[] _iconRunningData;
@@ -343,6 +368,8 @@ internal partial class MainForm : Form
             _audioService.LastIssueChanged += AudioService_LastIssueChanged;
 
             SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
+            SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+            SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
 
             ApplySavedWindowPosition();
             LoadState();
@@ -486,6 +513,94 @@ internal partial class MainForm : Form
         }
 
         base.WndProc(ref m);
+
+        if (IsMonitorScaleChange(m))
+        {
+            ScheduleRepaintAfterDisplayChange();
+        }
+    }
+
+    /// <summary>
+    /// True for a monitor mode change, or for the settings broadcast Windows
+    /// sends when a monitor's scale changes. Theme changes are not included:
+    /// those also arrive when a hidden window is shown.
+    /// </summary>
+    private static bool IsMonitorScaleChange(Message m)
+    {
+        if (m.Msg == WmDisplayChange)
+        {
+            return true;
+        }
+
+        if (m.Msg != WmSettingChange)
+        {
+            return false;
+        }
+
+        var parameter = unchecked((int)(long)m.WParam);
+        if (parameter == SpiSetLogicalDpiOverride)
+        {
+            return true;
+        }
+
+        // String broadcasts use wParam 0 and a section name in lParam.
+        if (parameter != 0 || m.LParam == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var section = Marshal.PtrToStringUni(m.LParam);
+        return section is "ImmersiveColorSet" or "WindowsThemeElement";
+    }
+
+    /// <summary>
+    /// Restarts <see cref="_displayChangeRepaintTimer"/> so the redraw waits
+    /// out a run of scale-change messages. No-op while the window is hidden.
+    /// </summary>
+    private void ScheduleRepaintAfterDisplayChange()
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated || !Visible)
+        {
+            return;
+        }
+
+        if (_displayChangeRepaintTimer is null)
+        {
+            _displayChangeRepaintTimer = new System.Windows.Forms.Timer
+            {
+                Interval = DisplayChangeRepaintDelayMs,
+            };
+            _displayChangeRepaintTimer.Tick += DisplayChangeRepaintTimer_Tick;
+        }
+
+        _displayChangeRepaintTimer.Stop();
+        _displayChangeRepaintTimer.Start();
+    }
+
+    /// <summary>
+    /// Erases and redraws the visible window after a scale-change burst.
+    /// Does not change the frame or the client size.
+    /// </summary>
+    private void DisplayChangeRepaintTimer_Tick(object? sender, EventArgs e)
+    {
+        _displayChangeRepaintTimer?.Stop();
+        if (IsDisposed || Disposing || !IsHandleCreated || !Visible)
+        {
+            return;
+        }
+
+        const uint flags = RdwInvalidate | RdwErase | RdwAllChildren | RdwUpdateNow;
+        RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, flags);
+        if (tabs.IsHandleCreated)
+        {
+            RedrawWindow(tabs.Handle, IntPtr.Zero, IntPtr.Zero, flags);
+        }
+
+        // Old label text can sit on the page, outside the label's new rectangle.
+        if (tabs.SelectedTab is { IsHandleCreated: true } page)
+        {
+            RedrawWindow(page.Handle, IntPtr.Zero, IntPtr.Zero, flags);
+        }
     }
 
     /// <summary>
@@ -570,7 +685,8 @@ internal partial class MainForm : Form
             rowHeight = LogicalToDeviceUnits(19);
         }
 
-        var leftover = tabSettings.ClientSize.Height - (rowCount * rowHeight);
+        var pageSize = CurrentPageSize();
+        var leftover = pageSize.Height - (rowCount * rowHeight);
         if (leftover < 0)
         {
             leftover = 0;
@@ -583,8 +699,8 @@ internal partial class MainForm : Form
         var leftPx = LogicalToDeviceUnits(leftDesign);
         var col2Px = LogicalToDeviceUnits(col2Design);
         var leftColWidth = Math.Max(
-            Math.Max(checkStartWithWindows.PreferredSize.Width, checkStartOnLaunch.PreferredSize.Width),
-            checkMinimizeOnLaunch.PreferredSize.Width);
+            Math.Max(MeasureOptionWidth(checkStartWithWindows), MeasureOptionWidth(checkStartOnLaunch)),
+            MeasureOptionWidth(checkMinimizeOnLaunch));
         col2Px = Math.Max(col2Px, leftPx + leftColWidth + LogicalToDeviceUnits(colGutterDesign));
 
         var y0 = unit;
@@ -609,7 +725,7 @@ internal partial class MainForm : Form
         const int groupHeightDesign = 62;
 
         var marginPx = LogicalToDeviceUnits(marginDesign);
-        var client = tabAudio.ClientSize;
+        var client = CurrentPageSize();
 
         var innerWidth = client.Width - (3 * marginPx);
         if (innerWidth < 2)
@@ -702,6 +818,11 @@ internal partial class MainForm : Form
 
     private void LayoutAllTabs()
     {
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
         RefreshAutoSizeTree(tabMain);
         LayoutMainTabStatusLabels();
         RefreshAutoSizeTree(tabSettings);
@@ -781,12 +902,63 @@ internal partial class MainForm : Form
     }
 
     /// <summary>
-    /// AutoSize checkboxes/radios keep the previous DPI's Size when their tab
-    /// was hidden during WM_DPICHANGED. Call only when the page is visible
-    /// (or at first show) — PreferredSize on a hidden page follows the child
-    /// HWND DPI, which lags.
+    /// Page area at the current DPI. Hidden pages keep a stale
+    /// <see cref="Control.ClientSize"/> after the window moves to another
+    /// monitor, so group boxes and columns laid out from that size clip the
+    /// option text. The design page is 392×77 at 96 DPI.
     /// </summary>
-    private static void RefreshAutoSizeTree(Control root)
+    private Size CurrentPageSize()
+    {
+        var width = LogicalToDeviceUnits(392);
+        var height = LogicalToDeviceUnits(77);
+        if (!tabs.IsHandleCreated)
+        {
+            return new Size(width, height);
+        }
+
+        var display = tabs.DisplayRectangle;
+        if (display.Width > width)
+        {
+            width = display.Width;
+        }
+
+        if (display.Height > height)
+        {
+            height = display.Height;
+        }
+
+        return new Size(width, height);
+    }
+
+    /// <summary>
+    /// Width of a checkbox or radio label at this window's font, including
+    /// the glyph. <see cref="Control.PreferredSize"/> on a control whose tab
+    /// was hidden during the DPI change stays near the 96 DPI designer width.
+    /// </summary>
+    private int MeasureOptionWidth(Control option)
+    {
+        var flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+        using var graphics = CreateGraphics();
+        var glyph = option switch
+        {
+            CheckBox => CheckBoxRenderer.GetGlyphSize(graphics, CheckBoxState.UncheckedNormal),
+            RadioButton => RadioButtonRenderer.GetGlyphSize(graphics, RadioButtonState.UncheckedNormal),
+            _ => Size.Empty,
+        };
+        var text = TextRenderer.MeasureText(
+            graphics,
+            option.Text,
+            Font,
+            new Size(int.MaxValue, int.MaxValue),
+            flags);
+        return glyph.Width + LogicalToDeviceUnits(6) + text.Width + LogicalToDeviceUnits(2);
+    }
+
+    /// <summary>
+    /// Sizes AutoSize checkboxes and radios from <see cref="MeasureOptionWidth"/>.
+    /// Other AutoSize controls still use <see cref="Control.PreferredSize"/>.
+    /// </summary>
+    private void RefreshAutoSizeTree(Control root)
     {
         foreach (Control child in root.Controls)
         {
@@ -796,10 +968,26 @@ internal partial class MainForm : Form
                 continue;
             }
 
-            var preferred = child.PreferredSize;
-            if (preferred.Width > 0 && preferred.Height > 0)
+            Size size;
+            if (child is CheckBox or RadioButton)
             {
-                child.Size = preferred;
+                var height = Math.Max(child.Height, LogicalToDeviceUnits(19));
+                size = new Size(MeasureOptionWidth(child), height);
+            }
+            else
+            {
+                var preferred = child.PreferredSize;
+                if (preferred.Width <= 0 || preferred.Height <= 0)
+                {
+                    continue;
+                }
+
+                size = preferred;
+            }
+
+            if (child.Size != size)
+            {
+                child.Size = size;
             }
         }
     }
@@ -1115,6 +1303,13 @@ internal partial class MainForm : Form
             _amberPhaseUiCoalesceTimer = null;
         }
 
+        if (_displayChangeRepaintTimer is not null)
+        {
+            _displayChangeRepaintTimer.Stop();
+            _displayChangeRepaintTimer.Dispose();
+            _displayChangeRepaintTimer = null;
+        }
+
         CrashExit.UnregisterForm();
 
         // Program owns audio / invalidator / device monitor.
@@ -1133,6 +1328,8 @@ internal partial class MainForm : Form
         Resize -= MainForm_Resize;
         tabs.SelectedIndexChanged -= Tabs_SelectedIndexChanged;
         SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
+        SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+        SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
         _graphInvalidator.Invalidated -= PlaybackGraph_Invalidated;
         _audioService.IsEngagedChanged -= AudioService_IsEngagedChanged;
         _audioService.PhaseChanged -= AudioService_PhaseChanged;
@@ -1202,6 +1399,36 @@ internal partial class MainForm : Form
         }
 
         _graphInvalidator.Signal();
+    }
+
+    /// <summary>
+    /// A monitor's mode changed. Raised for the process, including when this
+    /// window is on a different monitor and does not receive WM_DISPLAYCHANGE.
+    /// May run on a thread-pool thread.
+    /// </summary>
+    private void SystemEvents_DisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        PostToUi(ScheduleRepaintAfterDisplayChange);
+    }
+
+    /// <summary>
+    /// Theme or metric change that Windows sends with a per-monitor scale
+    /// change. The window on the other monitor is repainted by this, which
+    /// leaves the old label text in place. May run on a thread-pool thread.
+    /// </summary>
+    private void SystemEvents_UserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is not (
+            UserPreferenceCategory.General
+            or UserPreferenceCategory.Window
+            or UserPreferenceCategory.VisualStyle
+            or UserPreferenceCategory.Color
+            or UserPreferenceCategory.Desktop))
+        {
+            return;
+        }
+
+        PostToUi(ScheduleRepaintAfterDisplayChange);
     }
 
     /// <summary>
