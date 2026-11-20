@@ -163,24 +163,26 @@ partial class MainForm
         tabs.Controls.Add(tabSettings);
         tabs.Controls.Add(tabAudio);
         tabs.Dock = DockStyle.Fill;
-        // Width 0: keep text-sized tab widths. Height 21 = native 20 at 96 DPI
-        // + 1 so the Settings "g" descender is not clipped at 200%+. Runtime
-        // re-applies LogicalToDeviceUnits(21) — ItemSize is not AutoScaled.
-        tabs.ItemSize = new Size(0, 21);
+        // Width 0: keep text-sized tab widths. Height 23 = native 20 at 96 DPI
+        // + 3 so the tail of a descender (g, p) stays visible on an unselected
+        // tab from 100% through 400%. Runtime re-applies LogicalToDeviceUnits(23)
+        // — ItemSize is not AutoScaled.
+        tabs.ItemSize = new Size(0, 23);
         // Default is (6, 3). 10 matches short "Main" trailing slack on the
-        // longer labels. Runtime re-applies via TCM_SETPADDING (no recreate).
+        // longer labels. Vertical stays 3. Runtime re-applies via
+        // TCM_SETPADDING (no recreate).
         tabs.Padding = new Point(10, 3);
         tabs.Location = new Point(0, 0);
         tabs.Name = "tabs";
         tabs.SelectedIndex = 0;
-        tabs.Size = new Size(400, 106);
+        tabs.Size = new Size(400, 108);
         tabs.TabIndex = 0;
 
         tabMain.Controls.Add(startStopButton);
         tabMain.Controls.Add(labelStatusCaption);
         tabMain.Controls.Add(keepAliveStatusLabel);
         tabMain.Controls.Add(outputDeviceLabel);
-        tabMain.Location = new Point(4, 25);
+        tabMain.Location = new Point(4, 27);
         tabMain.Name = "tabMain";
         tabMain.Padding = new Padding(3);
         tabMain.Size = new Size(392, 77);
@@ -193,7 +195,7 @@ partial class MainForm
         tabSettings.Controls.Add(checkMinimizeToTray);
         tabSettings.Controls.Add(checkStartOnLaunch);
         tabSettings.Controls.Add(checkMinimizeOnLaunch);
-        tabSettings.Location = new Point(4, 25);
+        tabSettings.Location = new Point(4, 27);
         tabSettings.Name = "tabSettings";
         tabSettings.Padding = new Padding(3);
         tabSettings.Size = new Size(392, 77);
@@ -250,7 +252,7 @@ partial class MainForm
 
         tabAudio.Controls.Add(groupAudioType);
         tabAudio.Controls.Add(groupPattern);
-        tabAudio.Location = new Point(4, 25);
+        tabAudio.Location = new Point(4, 27);
         tabAudio.Name = "tabAudio";
         tabAudio.Padding = new Padding(3);
         tabAudio.Size = new Size(392, 77);
@@ -323,8 +325,9 @@ partial class MainForm
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        // 106 = 105 + 1 tab-strip pixel (96 DPI). Page content stays 77.
-        ClientSize = new Size(400, 106);
+        // 108 = 105 + 3 tab-strip pixels (96 DPI). 105 fits a native 20px strip.
+        // Page content stays 77.
+        ClientSize = new Size(400, 108);
         Controls.Add(tabs);
         Name = "MainForm";
         Text = "ZeroTone";

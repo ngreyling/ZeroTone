@@ -213,11 +213,13 @@ internal partial class MainForm : Form
     private const int CaptionIconPxAt96Dpi = 16;
 
     /// <summary>
-    /// Tab-strip item height at 96 DPI. Native commctl height is 20; +1 keeps
-    /// the Settings "g" descender inside the tab at 200%+. Width stays 0
-    /// (text-sized). Re-applied after DPI change — ItemSize is not AutoScaled.
+    /// Tab-strip item height at 96 DPI. Native commctl height is 20.
+    /// 23 is the smallest height that, once scaled, still shows the full
+    /// tail of a descender (g, p) on an unselected tab at every DPI from
+    /// 100% through 400%. Width stays 0 (text-sized). Re-applied after DPI
+    /// change — ItemSize is not AutoScaled.
     /// </summary>
-    private const int TabStripItemHeightDesign = 21;
+    private const int TabStripItemHeightDesign = 23;
 
     /// <summary>
     /// Horizontal tab-label padding at 96 DPI. Commctl default is 6; 10 gives
