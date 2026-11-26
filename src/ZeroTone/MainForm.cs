@@ -10,7 +10,7 @@ namespace ZeroTone;
 /// <summary>
 /// Primary window and tray icon controller. Consumes audio/device services owned by Program.
 /// </summary>
-internal partial class MainForm : Form
+internal partial class MainForm : Form, IMessageFilter
 {
     // Delayed tray single-click restore needs AttachThreadInput; Windows
     // blocks SetForegroundWindow from timer callbacks.
@@ -217,6 +217,21 @@ internal partial class MainForm : Form
     private const int WmSetIcon = 0x0080;
     private const int IconSmall = 0;
 
+    // Focus-cue UI state. WinForms shows the dotted rectangle after Tab and
+    // leaves it up; a mouse click sends the same clear a native dialog does.
+    private const int WmChangeUiState = 0x0127;
+    private const int WmQueryUiState = 0x0129;
+    private const int UisSet = 1;
+    private const int UisFHideFocus = 0x1;
+    private const int WmLButtonDown = 0x0201;
+    private const int WmRButtonDown = 0x0204;
+    private const int WmMButtonDown = 0x0207;
+    private const int WmXButtonDown = 0x020B;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int WmNcRButtonDown = 0x00A4;
+    private const int WmNcMButtonDown = 0x00A7;
+    private const int WmNcXButtonDown = 0x00AB;
+
     /// <summary>
     /// ICON_BIG: what the Win11 taskbar displays (after scaling if wrong size).
     /// We set this to the real taskbar pixel size (24 @ 100%), not SM_CXICON (32).
@@ -370,6 +385,7 @@ internal partial class MainForm : Form
             SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
             SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
             SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
+            Application.AddMessageFilter(this);
 
             ApplySavedWindowPosition();
             LoadState();
@@ -483,6 +499,66 @@ internal partial class MainForm : Form
         // Re-stamp caption HICONs after this message: WinForms may SETICON
         // from SM_CXSMICON (primary DPI) after we return.
         PostToUi(ApplyScaledUiLayoutAfterDpi);
+    }
+
+    /// <summary>
+    /// Client and non-client button-downs. Wheel and move do not hide the cue.
+    /// The form's own <see cref="WndProc"/> never sees a click on a child.
+    /// </summary>
+    private static bool IsFocusCueMouseDown(int msg) =>
+        msg is WmLButtonDown or WmRButtonDown or WmMButtonDown or WmXButtonDown
+            or WmNcLButtonDown or WmNcRButtonDown or WmNcMButtonDown or WmNcXButtonDown;
+
+    /// <summary>
+    /// True when <paramref name="hwnd"/> belongs to this form. Tray menu and
+    /// message-box windows are separate top-level windows and are left alone.
+    /// </summary>
+    private bool IsOwnWindow(IntPtr hwnd)
+    {
+        var control = Control.FromChildHandle(hwnd);
+        return control is not null && control.FindForm() == this;
+    }
+
+    /// <summary>
+    /// Hides the dotted focus rectangle after a mouse click in this window.
+    /// Tab still shows it. WinForms never clears it, so the rectangle would
+    /// otherwise stay for the rest of the process. Already-hidden state is
+    /// left unchanged so a click does not repaint the window.
+    /// </summary>
+    private void HideFocusRectangleOnMouseDown()
+    {
+        if (!IsHandleCreated || IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        // UISF_HIDEFOCUS set means the rectangle is already hidden.
+        var state = (int)SendMessage(Handle, WmQueryUiState, IntPtr.Zero, IntPtr.Zero);
+        if ((state & UisFHideFocus) != 0)
+        {
+            return;
+        }
+
+        SendMessage(
+            Handle,
+            WmChangeUiState,
+            (IntPtr)(UisSet | (UisFHideFocus << 16)),
+            IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Sees mouse input before the target control does, including clicks on
+    /// child controls. Returning false leaves the click to be dispatched.
+    /// </summary>
+    bool IMessageFilter.PreFilterMessage(ref Message m)
+    {
+        if (!IsFocusCueMouseDown(m.Msg) || IsDisposed || Disposing || !IsOwnWindow(m.HWnd))
+        {
+            return false;
+        }
+
+        HideFocusRectangleOnMouseDown();
+        return false;
     }
 
     /// <summary>
@@ -1319,9 +1395,12 @@ internal partial class MainForm : Form
     }
 
     /// <summary>
-    /// Drops form-owned handlers on process-owned services and static SystemEvents.
+    /// Drops form-owned handlers on process-owned services and static SystemEvents,
+    /// and the focus-cue mouse filter (that list roots the form until removed).
     /// Safe if a given += never ran (-= of an unsubscribed handler is a no-op).
-    /// Used from <see cref="OnFormClosed"/> and ctor failure after the first +=.
+    /// <see cref="Application.RemoveMessageFilter"/> is also a no-op if this
+    /// instance was never added. Used from <see cref="OnFormClosed"/> and ctor
+    /// failure after the first +=.
     /// </summary>
     private void DetachExternalEvents()
     {
@@ -1330,6 +1409,7 @@ internal partial class MainForm : Form
         SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
         SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
         SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
+        Application.RemoveMessageFilter(this);
         _graphInvalidator.Invalidated -= PlaybackGraph_Invalidated;
         _audioService.IsEngagedChanged -= AudioService_IsEngagedChanged;
         _audioService.PhaseChanged -= AudioService_PhaseChanged;
